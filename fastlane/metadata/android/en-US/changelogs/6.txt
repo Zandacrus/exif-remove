@@ -1,0 +1,7 @@
+* Cleaning now shows a progress bar with the file count and the name of the
+  file being worked on, so a large batch no longer looks frozen. Progress is
+  weighted by file size, so the bar reflects the time left rather than just
+  how many files are done.
+* Verification can be turned off in settings if you prefer speed. It stays on
+  by default, and files cleaned without it are not marked as verified.
+* Verification is about twice as fast, so it costs less than it used to.

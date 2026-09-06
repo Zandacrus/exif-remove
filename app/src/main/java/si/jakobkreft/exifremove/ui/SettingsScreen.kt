@@ -33,6 +33,7 @@ fun SettingsScreen(
     onSkipDialogChange: (Boolean) -> Unit,
     onRandomFileNamesChange: (Boolean) -> Unit,
     onConvertUnsupportedChange: (Boolean) -> Unit,
+    onVerifyOutputChange: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -71,6 +72,12 @@ fun SettingsScreen(
                 description = stringResource(R.string.setting_convert_unsupported_desc),
                 checked = state.convertUnsupported,
                 onChange = onConvertUnsupportedChange,
+            )
+            SwitchSetting(
+                title = stringResource(R.string.setting_verify),
+                description = stringResource(R.string.setting_verify_desc),
+                checked = state.verifyOutput,
+                onChange = onVerifyOutputChange,
             )
         }
     }

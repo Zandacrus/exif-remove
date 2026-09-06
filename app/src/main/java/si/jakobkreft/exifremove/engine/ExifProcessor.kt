@@ -10,6 +10,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import si.jakobkreft.exifremove.data.RuleAction
 import si.jakobkreft.exifremove.data.Template
@@ -36,7 +38,33 @@ enum class ProcessError { UNSUPPORTED_FORMAT, UNREADABLE, NOT_PROVABLY_CLEAN }
 class ProcessorOptions(
     val randomFileNames: Boolean,
     val convertUnsupported: Boolean,
+    val verifyOutput: Boolean = true,
 )
+
+/**
+ * How far along a batch is. Weighted by bytes rather than file count: a
+ * 12 MB video takes far longer than a 2 MB photo, so counting files would
+ * make the bar lie about the time left.
+ */
+data class CleaningProgress(
+    val completed: Int,
+    val total: Int,
+    /** The file being worked on right now, or null when finished. */
+    val currentName: String?,
+    val bytesDone: Long,
+    val bytesTotal: Long,
+) {
+    /** Null when the sizes are unknown, so the UI can fall back to indeterminate. */
+    val fraction: Float?
+        get() = when {
+            bytesTotal > 0 -> (bytesDone.toFloat() / bytesTotal).coerceIn(0f, 1f)
+            total > 0 -> completed.toFloat() / total
+            else -> null
+        }
+}
+
+/** A source file's name and size, queried once up front. */
+private class SourceInfo(val uri: Uri, val name: String?, val size: Long)
 
 object ExifProcessor {
 
@@ -45,20 +73,69 @@ object ExifProcessor {
         uris: List<Uri>,
         template: Template,
         options: ProcessorOptions,
+        onProgress: (CleaningProgress) -> Unit = {},
     ): List<ProcessedImage> = withContext(Dispatchers.IO) {
         CleanedCache.prune(context)
         val sessionDir = CleanedCache.sessionDir(context, UUID.randomUUID().toString())
-        uris.map { uri -> processOne(context, uri, template, options, sessionDir) }
+
+        // Names and sizes come from one cursor query per file, before any work
+        // starts, so the total is known and the bar never has to guess.
+        val sources = uris.map { querySource(context, it) }
+        val bytesTotal = sources.sumOf { it.size }
+        var bytesDone = 0L
+
+        val results = ArrayList<ProcessedImage>(sources.size)
+        sources.forEachIndexed { index, source ->
+            // Abandon the batch promptly if the sheet was dismissed.
+            currentCoroutineContext().ensureActive()
+            report(
+                onProgress,
+                CleaningProgress(index, sources.size, source.name, bytesDone, bytesTotal),
+            )
+            results += processOne(context, source, template, options, sessionDir)
+            bytesDone += source.size
+        }
+        report(
+            onProgress,
+            CleaningProgress(sources.size, sources.size, null, bytesDone, bytesTotal),
+        )
+        results
+    }
+
+    /** Progress is a UI concern, so it is delivered on the main thread. */
+    private suspend fun report(onProgress: (CleaningProgress) -> Unit, progress: CleaningProgress) {
+        withContext(Dispatchers.Main) { onProgress(progress) }
+    }
+
+    private fun querySource(context: Context, uri: Uri): SourceInfo {
+        var name: String? = null
+        var size = 0L
+        try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                null, null, null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    name = try { cursor.getString(0) } catch (e: Exception) { null }
+                    size = try { if (cursor.isNull(1)) 0L else cursor.getLong(1) } catch (e: Exception) { 0L }
+                }
+            }
+        } catch (e: Exception) {
+            name = uri.lastPathSegment
+        }
+        return SourceInfo(uri, name ?: uri.lastPathSegment, size)
     }
 
     private fun processOne(
         context: Context,
-        uri: Uri,
+        source: SourceInfo,
         template: Template,
         options: ProcessorOptions,
         outDir: File,
     ): ProcessedImage {
-        val originalName = queryDisplayName(context, uri)
+        val uri = source.uri
+        val originalName = source.name
         val temp = File.createTempFile("original", null, context.cacheDir)
         try {
             try {
@@ -92,7 +169,7 @@ object ExifProcessor {
                 val outName = outputName(originalName, ext, options)
                 val outFile = File(outDir, outName)
                 try {
-                    val report = cleanFile(temp, outFile, template)
+                    val report = cleanFile(temp, outFile, template, options.verifyOutput)
                     ProcessedImage(outFile, outName, mime, report = report)
                 } catch (e: VerificationException) {
                     // Never hand back a file that looks cleaned but isn't.
@@ -135,7 +212,7 @@ object ExifProcessor {
         val outName = outputName(originalName, ext, options, prefix = "VID_")
         val outFile = File(outDir, outName)
         return try {
-            val report = cleanFile(temp, outFile, template)
+            val report = cleanFile(temp, outFile, template, options.verifyOutput)
             ProcessedImage(outFile, outName, mime, report = report)
         } catch (e: Exception) {
             outFile.delete()
@@ -171,7 +248,9 @@ object ExifProcessor {
         // The pixels were re-encoded, so any EXIF present is what we just
         // wrote — but still prove nothing else came along with it.
         return try {
-            OutputVerifier.verify(ImageFormat.JPEG, outFile, keepExif = true)
+            if (options.verifyOutput) {
+                OutputVerifier.verify(ImageFormat.JPEG, outFile, keepExif = true)
+            }
             val log = StripLog().apply { reEncoded() }
             val report = CleaningReport(
                 format = ImageFormat.JPEG,
@@ -183,7 +262,7 @@ object ExifProcessor {
                 findings = log.findings(),
                 originalBytes = source.length(),
                 cleanedBytes = outFile.length(),
-                verified = true,
+                verified = options.verifyOutput,
             )
             ProcessedImage(outFile, outName, "image/jpeg", report = report)
         } catch (e: VerificationException) {
@@ -413,7 +492,12 @@ object ExifProcessor {
      * Cleans a media file on disk — the single engine behind both the share
      * flow and the inspector. Returns false when the format is unsupported.
      */
-    internal fun cleanFile(source: File, dest: File, template: Template): CleaningReport? {
+    internal fun cleanFile(
+        source: File,
+        dest: File,
+        template: Template,
+        verify: Boolean = true,
+    ): CleaningReport? {
         val format = MetadataStripper.detectFormat(source)
         if (format == ImageFormat.HEIF || format == ImageFormat.UNSUPPORTED) return null
 
@@ -436,7 +520,9 @@ object ExifProcessor {
                 }
                 // Last line of defence: prove the produced file is metadata-free
                 // rather than trusting that the strip did what it intended.
-                OutputVerifier.verify(format, dest, keepExif = surgical || exifWrittenBack)
+                if (verify) {
+                    OutputVerifier.verify(format, dest, keepExif = surgical || exifWrittenBack)
+                }
             }
         }
 
@@ -448,7 +534,7 @@ object ExifProcessor {
             cleanedBytes = dest.length(),
             // Videos are scrubbed in place rather than rebuilt, so there is no
             // rebuilt container to re-parse; only images carry the guarantee.
-            verified = format != ImageFormat.MP4,
+            verified = verify && format != ImageFormat.MP4,
         )
     }
 

@@ -36,6 +36,28 @@ object OutputVerifier {
 
     private const val EXIF_SIGNATURE = "Exif\u0000\u0000"
 
+    private class Signature(val bytes: ByteArray, val name: String)
+
+    /** Encoded once, not on every call. */
+    private val SIGNATURES: List<Signature> =
+        FORBIDDEN_SIGNATURES.map { (text, name) ->
+            Signature(text.toByteArray(Charsets.ISO_8859_1), name)
+        }
+
+    private val EXIF_SIGNATURE_BYTES =
+        Signature(EXIF_SIGNATURE.toByteArray(Charsets.ISO_8859_1), "EXIF")
+
+    /**
+     * A byte can only begin a match if it is some signature's first byte.
+     * Those are rare in image data, so this table rejects nearly every
+     * position with one lookup and turns five passes over the file into one.
+     */
+    private val SIGNATURE_START = BooleanArray(256).also { table ->
+        for (signature in SIGNATURES + EXIF_SIGNATURE_BYTES) {
+            table[signature.bytes[0].toInt() and 0xFF] = true
+        }
+    }
+
     /**
      * Verifies [file]. With [keepExif] an EXIF block is expected and allowed;
      * otherwise its presence anywhere is itself a failure.
@@ -64,25 +86,26 @@ object OutputVerifier {
     // -------------------------------------------------------------- content
 
     private fun signatureProblem(bytes: ByteArray, keepExif: Boolean): String? {
-        val signatures = FORBIDDEN_SIGNATURES.toMutableList()
-        if (!keepExif) signatures += EXIF_SIGNATURE to "EXIF"
-        for ((signature, name) in signatures) {
-            if (indexOf(bytes, signature.toByteArray(Charsets.ISO_8859_1)) >= 0) {
-                return "$name survived stripping"
+        for (start in bytes.indices) {
+            if (!SIGNATURE_START[bytes[start].toInt() and 0xFF]) continue
+            for (signature in SIGNATURES) {
+                if (matchesAt(bytes, start, signature.bytes)) {
+                    return "${signature.name} survived stripping"
+                }
+            }
+            if (!keepExif && matchesAt(bytes, start, EXIF_SIGNATURE_BYTES.bytes)) {
+                return "${EXIF_SIGNATURE_BYTES.name} survived stripping"
             }
         }
         return null
     }
 
-    private fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
-        if (needle.isEmpty() || needle.size > haystack.size) return -1
-        outer@ for (start in 0..haystack.size - needle.size) {
-            for (i in needle.indices) {
-                if (haystack[start + i] != needle[i]) continue@outer
-            }
-            return start
+    private fun matchesAt(haystack: ByteArray, start: Int, needle: ByteArray): Boolean {
+        if (start + needle.size > haystack.size) return false
+        for (i in needle.indices) {
+            if (haystack[start + i] != needle[i]) return false
         }
-        return -1
+        return true
     }
 
     // ----------------------------------------------------------------- JPEG

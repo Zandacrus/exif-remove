@@ -24,6 +24,7 @@ data class AppState(
     val skipDialog: Boolean,
     val randomFileNames: Boolean,
     val convertUnsupported: Boolean,
+    val verifyOutput: Boolean,
     val onboardingDone: Boolean,
 ) {
     val defaultTemplate: Template
@@ -43,6 +44,7 @@ class AppRepository(private val context: Context) {
         val SKIP_DIALOG = booleanPreferencesKey("skip_dialog")
         val RANDOM_FILE_NAMES = booleanPreferencesKey("random_file_names")
         val CONVERT_UNSUPPORTED = booleanPreferencesKey("convert_unsupported")
+        val VERIFY_OUTPUT = booleanPreferencesKey("verify_output")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
     }
 
@@ -67,6 +69,9 @@ class AppRepository(private val context: Context) {
             skipDialog = this[Keys.SKIP_DIALOG] ?: false,
             randomFileNames = this[Keys.RANDOM_FILE_NAMES] ?: true,
             convertUnsupported = this[Keys.CONVERT_UNSUPPORTED] ?: true,
+            // On by default: the guarantee is the point of the app, and it is
+            // never weakened without the user asking for it.
+            verifyOutput = this[Keys.VERIFY_OUTPUT] ?: true,
             onboardingDone = this[Keys.ONBOARDING_DONE] ?: false,
         )
     }
@@ -108,6 +113,10 @@ class AppRepository(private val context: Context) {
 
     suspend fun setConvertUnsupported(value: Boolean) {
         context.dataStore.edit { it[Keys.CONVERT_UNSUPPORTED] = value }
+    }
+
+    suspend fun setVerifyOutput(value: Boolean) {
+        context.dataStore.edit { it[Keys.VERIFY_OUTPUT] = value }
     }
 
     suspend fun setOnboardingDone() {

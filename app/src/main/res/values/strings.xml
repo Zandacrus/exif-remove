@@ -51,6 +51,8 @@
     <string name="setting_random_filename_desc">Rename cleaned files (file names can reveal information)</string>
     <string name="setting_convert_unsupported">Convert unsupported formats</string>
     <string name="setting_convert_unsupported_desc">Re-encode image formats that can\'t be cleaned in place (such as HEIC) to JPEG. Images only</string>
+    <string name="setting_verify">Verify cleaned files</string>
+    <string name="setting_verify_desc">Re-read every cleaned image and withhold it if any metadata survived. Turning this off is a little faster, but you lose the guarantee</string>
 
     <!-- Share flow -->
     <plurals name="clean_n_images">
@@ -59,6 +61,7 @@
     </plurals>
     <string name="choose_template">Choose a template</string>
     <string name="processing">Cleaning…</string>
+    <string name="cleaning_n_of_m">Cleaning %1$d of %2$d</string>
     <plurals name="n_images_ready">
         <item quantity="one">%d file cleaned</item>
         <item quantity="other">%d files cleaned</item>

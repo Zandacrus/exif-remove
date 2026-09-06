@@ -191,4 +191,27 @@ class ExifProcessorTest {
         val entries = ImageMetadataReader.read(out)
         assertTrue(entries.none { it.name == "Light Source" })
     }
+
+    @Test
+    fun `skipping verification still cleans, but drops the guarantee`() {
+        val out = tmp.newFile("unverified.jpg")
+        val report = ExifProcessor.cleanFile(
+            photo, out, Template(id = "t", name = "t"), verify = false,
+        )
+        assertNotNull(report)
+        // The file is cleaned exactly as before...
+        val exif = ExifInterface(out.absolutePath)
+        assertNull(exif.latLong)
+        assertNull(exif.getAttribute(ExifInterface.TAG_MAKE))
+        // ...but nothing claims it was proven clean, so no badge is shown.
+        assertFalse(report!!.verified)
+    }
+
+    @Test
+    fun `verification on by default marks the report as verified`() {
+        val out = tmp.newFile("verified.jpg")
+        val report = ExifProcessor.cleanFile(photo, out, Template(id = "t", name = "t"))
+        assertNotNull(report)
+        assertTrue(report!!.verified)
+    }
 }

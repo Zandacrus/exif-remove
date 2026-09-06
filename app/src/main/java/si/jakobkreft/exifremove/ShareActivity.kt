@@ -25,7 +25,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.content.IntentCompat
@@ -53,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import si.jakobkreft.exifremove.data.AppRepository
 import si.jakobkreft.exifremove.data.Template
+import si.jakobkreft.exifremove.engine.CleaningProgress
 import si.jakobkreft.exifremove.engine.ExifProcessor
 import si.jakobkreft.exifremove.engine.ProcessError
 import si.jakobkreft.exifremove.engine.ProcessedImage
@@ -171,7 +173,7 @@ class ShareActivity : ComponentActivity() {
 
 private sealed interface Stage {
     data object Pick : Stage
-    data object Working : Stage
+    data class Working(val progress: CleaningProgress?) : Stage
     data class Done(val results: List<ProcessedImage>) : Stage
 }
 
@@ -202,7 +204,7 @@ private fun ShareSheet(
 
     LaunchedEffect(selectedTemplate) {
         val template = selectedTemplate ?: return@LaunchedEffect
-        stage = Stage.Working
+        stage = Stage.Working(null)
         val results = ExifProcessor.processAll(
             context = context,
             uris = uris,
@@ -210,7 +212,9 @@ private fun ShareSheet(
             options = ProcessorOptions(
                 randomFileNames = appState.randomFileNames,
                 convertUnsupported = appState.convertUnsupported,
+                verifyOutput = appState.verifyOutput,
             ),
+            onProgress = { progress -> stage = Stage.Working(progress) },
         )
         stage = Stage.Done(results)
     }
@@ -267,16 +271,44 @@ private fun ShareSheet(
                     }
                 }
                 is Stage.Working -> {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(vertical = 24.dp),
+                    val progress = current.progress
+                    val fraction = progress?.fraction
+                    Column(
+                        modifier = Modifier.padding(vertical = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        CircularProgressIndicator()
                         Text(
-                            stringResource(R.string.processing),
+                            if (progress != null && progress.total > 1) {
+                                stringResource(
+                                    R.string.cleaning_n_of_m,
+                                    (progress.completed + 1).coerceAtMost(progress.total),
+                                    progress.total,
+                                )
+                            } else {
+                                stringResource(R.string.processing)
+                            },
                             style = MaterialTheme.typography.bodyLarge,
                         )
+                        // A single file gives nothing to measure against, so the
+                        // bar stays indeterminate rather than sitting at zero.
+                        if (fraction != null && progress.total > 1) {
+                            LinearProgressIndicator(
+                                progress = { fraction },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        val name = progress?.currentName
+                        if (!name.isNullOrBlank()) {
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
                 is Stage.Done -> {
