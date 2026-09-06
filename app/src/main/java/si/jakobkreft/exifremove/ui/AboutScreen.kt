@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.outlined.Coffee
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import si.jakobkreft.exifremove.R
 
 const val SOURCE_URL = "https://github.com/jakobkreft/exif-remove"
+const val SUPPORT_URL = "https://ko-fi.com/jakobk"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +116,15 @@ fun AboutScreen(onBack: () -> Unit) {
                 Icon(Icons.Filled.Code, contentDescription = null)
                 Text(
                     stringResource(R.string.source_code),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            OutlinedButton(onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, SUPPORT_URL.toUri()))
+            }) {
+                Icon(Icons.Outlined.Coffee, contentDescription = null)
+                Text(
+                    stringResource(R.string.support),
                     modifier = Modifier.padding(start = 8.dp),
                 )
             }

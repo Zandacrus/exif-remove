@@ -76,4 +76,4 @@ Free software under the GNU General Public License, version 3 or later. See
 
 ---
 
-<a href="https://buymeacoffee.com/jaak"><img src=".github/buymeacoffee.svg" alt="Buy me a coffee" height="28"></a>
+<a href="https://ko-fi.com/jakobk"><img src=".github/kofi.svg" alt="Support on Ko-fi" height="28"></a>
