@@ -23,13 +23,23 @@ object PickerIntegration {
 
     const val AUTHORITY = "si.jakobkreft.exifremove.documents"
 
+    /** The one root the picker lists the app under. */
+    const val ROOT_ID = "exifremove"
+
     /**
-     * A document id is `<templateId>` for a root, `<templateId>/d/<path>/`
-     * for a folder below it and `<templateId>/f/<mediaId>` for a file. The
-     * kind is spelled out rather than inferred, so a folder called `42`
-     * cannot be read as a media id.
+     * The document above every template. It is not a template id itself, and
+     * cannot collide with one: built-in ids are hyphenated words and custom
+     * ones are UUIDs, neither of which starts with `@`.
      */
-    fun rootDocumentId(templateId: String): String = templateId
+    const val ROOT_DOCUMENT_ID = "@root"
+
+    /**
+     * A document id is `@root` for the root, `<templateId>` for a template's
+     * view of storage, `<templateId>/d/<path>/` for a folder inside it and
+     * `<templateId>/f/<mediaId>` for a file. The kind is spelled out rather
+     * than inferred, so a folder called `42` cannot be read as a media id.
+     */
+    fun templateDocumentId(templateId: String): String = templateId
 
     fun folderDocumentId(templateId: String, path: String): String =
         if (path.isEmpty()) templateId else "$templateId/d/$path"
@@ -46,10 +56,11 @@ object PickerIntegration {
     }
 
     /**
-     * The folder an id stands for, `""` being the storage root; null when the
-     * id names a file instead.
+     * The folder an id stands for, `""` being the top of storage; null when
+     * the id names a file, or the root, which stands for no folder at all.
      */
     fun folderPathOf(documentId: String): String? {
+        if (isRoot(documentId)) return null
         val rest = documentId.substringAfter('/', "")
         return when {
             rest.isEmpty() -> ""
@@ -58,9 +69,14 @@ object PickerIntegration {
         }
     }
 
-    fun isRoot(documentId: String): Boolean = !documentId.contains('/')
+    fun isRoot(documentId: String): Boolean = documentId == ROOT_DOCUMENT_ID
+
+    /** True for a template's own document, the level between root and storage. */
+    fun isTemplate(documentId: String): Boolean =
+        !isRoot(documentId) && !documentId.contains('/')
 
     fun templateFor(documentId: String, templates: List<Template>): Template? {
+        if (isRoot(documentId)) return null
         val id = templateIdOf(documentId)
         return templates.firstOrNull { it.id == id }
     }

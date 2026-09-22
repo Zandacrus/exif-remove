@@ -5,6 +5,7 @@ package si.jakobkreft.exifremove.picker
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -31,16 +32,30 @@ class PickerIntegrationTest {
     }
 
     @Test
-    fun `the root stands for the whole of storage`() {
-        val root = PickerIntegration.rootDocumentId(Template.ID_REMOVE_EVERYTHING)
-        assertTrue(PickerIntegration.isRoot(root))
-        assertEquals("", PickerIntegration.folderPathOf(root))
-        assertNull(PickerIntegration.mediaIdOf(root))
-        // An empty path must not produce a second, different id for the root.
+    fun `a template stands for the whole of storage`() {
+        val template = PickerIntegration.templateDocumentId(Template.ID_REMOVE_EVERYTHING)
+        assertTrue(PickerIntegration.isTemplate(template))
+        assertFalse(PickerIntegration.isRoot(template))
+        assertEquals("", PickerIntegration.folderPathOf(template))
+        assertNull(PickerIntegration.mediaIdOf(template))
+        // An empty path must not produce a second, different id for it.
         assertEquals(
-            root,
+            template,
             PickerIntegration.folderDocumentId(Template.ID_REMOVE_EVERYTHING, "")
         )
+    }
+
+    @Test
+    fun `the root is above every template and is no template itself`() {
+        val root = PickerIntegration.ROOT_DOCUMENT_ID
+        assertTrue(PickerIntegration.isRoot(root))
+        assertFalse(PickerIntegration.isTemplate(root))
+        // It names no folder, so it can never be listed as one.
+        assertNull(PickerIntegration.folderPathOf(root))
+        assertNull(PickerIntegration.mediaIdOf(root))
+        assertNull(PickerIntegration.templateFor(root, Template.builtIns()))
+        // No template id may collide with it.
+        Template.builtIns().forEach { assertNotEquals(root, it.id) }
     }
 
     @Test

@@ -19,7 +19,6 @@ import java.io.FileNotFoundException
 import kotlinx.coroutines.runBlocking
 import si.jakobkreft.exifremove.R
 import si.jakobkreft.exifremove.data.AppRepository
-import si.jakobkreft.exifremove.data.Template
 import si.jakobkreft.exifremove.engine.MediaAccess
 
 /**
@@ -41,26 +40,22 @@ class CleanDocumentsProvider : DocumentsProvider() {
 
     // ------------------------------------------------------------- roots
 
+    /**
+     * One root, however many templates exist. A root per template read as
+     * several unrelated apps in the picker's source list; the choice of what
+     * to strip is a step inside the app's own root instead, where it reads
+     * as a question rather than as duplicate entries.
+     */
     override fun queryRoots(projection: Array<String>?): Cursor {
         val cursor = MatrixCursor(projection ?: ROOT_PROJECTION)
-        val templates = try {
-            runBlocking { AppRepository.get(appContext).currentState().templates }
-        } catch (e: Exception) {
-            Template.builtIns()
-        }
-        // A root per template rather than one root with a setting: the choice
-        // of what to strip belongs in the picker, where the file is chosen,
-        // not behind a trip back into this app.
-        templates.forEach { template ->
-            cursor.newRow().apply {
-                add(Root.COLUMN_ROOT_ID, PickerIntegration.rootDocumentId(template.id))
-                add(Root.COLUMN_DOCUMENT_ID, PickerIntegration.rootDocumentId(template.id))
-                add(Root.COLUMN_TITLE, appContext.getString(R.string.app_name))
-                add(Root.COLUMN_SUMMARY, template.name)
-                add(Root.COLUMN_MIME_TYPES, "image/*\nvideo/*")
-                add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
-                add(Root.COLUMN_FLAGS, Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_IS_CHILD)
-            }
+        cursor.newRow().apply {
+            add(Root.COLUMN_ROOT_ID, PickerIntegration.ROOT_ID)
+            add(Root.COLUMN_DOCUMENT_ID, PickerIntegration.ROOT_DOCUMENT_ID)
+            add(Root.COLUMN_TITLE, appContext.getString(R.string.app_name))
+            add(Root.COLUMN_SUMMARY, appContext.getString(R.string.picker_root_summary))
+            add(Root.COLUMN_MIME_TYPES, "image/*\nvideo/*")
+            add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
+            add(Root.COLUMN_FLAGS, Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_IS_CHILD)
         }
         return cursor
     }
@@ -69,13 +64,17 @@ class CleanDocumentsProvider : DocumentsProvider() {
 
     override fun queryDocument(documentId: String, projection: Array<String>?): Cursor {
         val cursor = MatrixCursor(projection ?: DOCUMENT_PROJECTION)
+        if (PickerIntegration.isRoot(documentId)) {
+            addDirRow(cursor, documentId, appContext.getString(R.string.app_name))
+            return cursor
+        }
         val state = runBlocking { AppRepository.get(appContext).currentState() }
-        PickerIntegration.templateFor(documentId, state.templates)
+        val template = PickerIntegration.templateFor(documentId, state.templates)
             ?: throw FileNotFoundException("Unknown template in $documentId")
 
         val folderPath = PickerIntegration.folderPathOf(documentId)
         if (folderPath != null) {
-            addFolderRow(cursor, documentId, folderPath)
+            addFolderRow(cursor, documentId, folderPath, template.name)
             return cursor
         }
 
@@ -94,7 +93,30 @@ class CleanDocumentsProvider : DocumentsProvider() {
     ): Cursor {
         val cursor = MatrixCursor(projection ?: DOCUMENT_PROJECTION)
         val state = runBlocking { AppRepository.get(appContext).currentState() }
+
+        // The first level is the question this app exists to ask: what
+        // should come off the file? Storage is browsed one level in, under
+        // the answer, so the file and the treatment are chosen together.
+        if (PickerIntegration.isRoot(parentDocumentId)) {
+            state.templates.forEach { template ->
+                addDirRow(
+                    cursor,
+                    PickerIntegration.templateDocumentId(template.id),
+                    template.name,
+                )
+            }
+            cursor.extras = Bundle().apply {
+                putString(
+                    DocumentsContract.EXTRA_INFO,
+                    appContext.getString(R.string.picker_choose_template),
+                )
+            }
+            return cursor
+        }
+
         val templateId = PickerIntegration.templateIdOf(parentDocumentId)
+        val template = PickerIntegration.templateFor(parentDocumentId, state.templates)
+            ?: throw FileNotFoundException("Unknown template in $parentDocumentId")
         val folderPath = PickerIntegration.folderPathOf(parentDocumentId)
             ?: throw FileNotFoundException("Not a folder: $parentDocumentId")
 
@@ -119,6 +141,7 @@ class CleanDocumentsProvider : DocumentsProvider() {
                 cursor,
                 PickerIntegration.folderDocumentId(templateId, folder.path),
                 folder.path,
+                template.name,
             )
         }
         listing.files.forEach { item ->
@@ -134,6 +157,10 @@ class CleanDocumentsProvider : DocumentsProvider() {
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+        // Everything the provider serves hangs off the one root.
+        if (PickerIntegration.isRoot(parentDocumentId)) {
+            return documentId != parentDocumentId
+        }
         if (PickerIntegration.templateIdOf(parentDocumentId) !=
             PickerIntegration.templateIdOf(documentId)
         ) {
@@ -146,14 +173,25 @@ class CleanDocumentsProvider : DocumentsProvider() {
         return childPath != parentPath && childPath.startsWith(parentPath)
     }
 
-    /** The storage root is named for what it is; below it, each folder's own name. */
-    private fun addFolderRow(cursor: MatrixCursor, documentId: String, path: String) {
+    /**
+     * A folder inside a template. The top of storage has no folder name of
+     * its own, so it takes the template's — which is also what the picker
+     * shows in its breadcrumb, keeping the chosen treatment in view while
+     * the user walks down into DCIM or Pictures.
+     */
+    private fun addFolderRow(
+        cursor: MatrixCursor,
+        documentId: String,
+        path: String,
+        templateName: String,
+    ) {
+        addDirRow(cursor, documentId, MediaCatalog.folderName(path) ?: templateName)
+    }
+
+    private fun addDirRow(cursor: MatrixCursor, documentId: String, name: String) {
         cursor.newRow().apply {
             add(Document.COLUMN_DOCUMENT_ID, documentId)
-            add(
-                Document.COLUMN_DISPLAY_NAME,
-                MediaCatalog.folderName(path) ?: appContext.getString(R.string.picker_root_name),
-            )
+            add(Document.COLUMN_DISPLAY_NAME, name)
             add(Document.COLUMN_MIME_TYPE, Document.MIME_TYPE_DIR)
             add(Document.COLUMN_FLAGS, Document.FLAG_DIR_PREFERS_GRID)
         }
@@ -218,6 +256,7 @@ class CleanDocumentsProvider : DocumentsProvider() {
     }
 
     override fun getDocumentType(documentId: String): String {
+        if (PickerIntegration.isRoot(documentId)) return Document.MIME_TYPE_DIR
         if (PickerIntegration.folderPathOf(documentId) != null) return Document.MIME_TYPE_DIR
         val mediaId = PickerIntegration.mediaIdOf(documentId)
             ?: throw FileNotFoundException("Malformed document id $documentId")
