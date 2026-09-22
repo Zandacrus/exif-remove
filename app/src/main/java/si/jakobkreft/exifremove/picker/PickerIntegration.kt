@@ -15,9 +15,13 @@ import si.jakobkreft.exifremove.data.Template
  * cleaned copy straight into an upload without a detour through the share
  * sheet and back.
  *
- * Nothing is cleaned when the picker lists a file; the bytes are produced on
- * [CleanDocumentsProvider.openDocument], so the picking app never has a
- * handle on the original.
+ * Two components answer for it, because the system picker treats the two
+ * ways of asking for a file differently: [CleanDocumentsProvider] is the
+ * storage root that ACTION_OPEN_DOCUMENT callers see, and
+ * [PickCleanActivity] is the source that ACTION_GET_CONTENT callers see.
+ *
+ * Either way the asking app receives only a cleaned copy, never a handle on
+ * the original.
  */
 object PickerIntegration {
 
@@ -86,8 +90,30 @@ object PickerIntegration {
      * which is what removes the entry from the picker; a preference alone
      * would leave an empty source sitting in the list.
      */
-    fun setEnabled(context: Context, enabled: Boolean) {
-        val component = ComponentName(context, CleanDocumentsProvider::class.java)
+    /**
+     * The storage root, on or off. Disabling the component outright is what
+     * removes the entry from the picker; a preference alone would leave an
+     * empty source sitting in the list.
+     */
+    fun setRootEnabled(context: Context, enabled: Boolean) {
+        setComponentEnabled(context, CleanDocumentsProvider::class.java, enabled)
+        notifyRootsChanged(context)
+    }
+
+    /**
+     * The entry that opens the picker itself, on or off.
+     *
+     * Kept separate from the root because some pickers show an app once:
+     * where a package already contributes a storage root, its
+     * ACTION_GET_CONTENT entry is dropped from the source list. Turning the
+     * root off is then the only way to reach this one.
+     */
+    fun setBrowseEnabled(context: Context, enabled: Boolean) {
+        setComponentEnabled(context, PickCleanActivity::class.java, enabled)
+    }
+
+    private fun setComponentEnabled(context: Context, cls: Class<*>, enabled: Boolean) {
+        val component = ComponentName(context, cls)
         val target = if (enabled) {
             PackageManager.COMPONENT_ENABLED_STATE_ENABLED
         } else {
@@ -98,7 +124,6 @@ object PickerIntegration {
                 component, target, PackageManager.DONT_KILL_APP
             )
         }
-        notifyRootsChanged(context)
     }
 
     /** Re-reads the root list, so template edits show up in the picker at once. */

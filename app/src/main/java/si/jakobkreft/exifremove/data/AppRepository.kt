@@ -27,6 +27,7 @@ data class AppState(
     val convertUnsupported: Boolean,
     val verifyOutput: Boolean,
     val pickerIntegration: Boolean,
+    val pickerBrowse: Boolean,
     val onboardingDone: Boolean,
 ) {
     val defaultTemplate: Template
@@ -48,6 +49,7 @@ class AppRepository(private val context: Context) {
         val CONVERT_UNSUPPORTED = booleanPreferencesKey("convert_unsupported")
         val VERIFY_OUTPUT = booleanPreferencesKey("verify_output")
         val PICKER_INTEGRATION = booleanPreferencesKey("picker_integration")
+        val PICKER_BROWSE = booleanPreferencesKey("picker_browse")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
     }
 
@@ -76,6 +78,7 @@ class AppRepository(private val context: Context) {
             // never weakened without the user asking for it.
             verifyOutput = this[Keys.VERIFY_OUTPUT] ?: true,
             pickerIntegration = this[Keys.PICKER_INTEGRATION] ?: true,
+            pickerBrowse = this[Keys.PICKER_BROWSE] ?: true,
             onboardingDone = this[Keys.ONBOARDING_DONE] ?: false,
         )
     }
@@ -128,7 +131,12 @@ class AppRepository(private val context: Context) {
 
     suspend fun setPickerIntegration(value: Boolean) {
         context.dataStore.edit { it[Keys.PICKER_INTEGRATION] = value }
-        PickerIntegration.setEnabled(context, value)
+        PickerIntegration.setRootEnabled(context, value)
+    }
+
+    suspend fun setPickerBrowse(value: Boolean) {
+        context.dataStore.edit { it[Keys.PICKER_BROWSE] = value }
+        PickerIntegration.setBrowseEnabled(context, value)
     }
 
     suspend fun setOnboardingDone() {

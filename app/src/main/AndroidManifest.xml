@@ -51,6 +51,31 @@
         </activity>
 
         <!--
+             The app as a source in another app's file dialog. Selecting it
+             opens the ordinary document picker, so the file may come from
+             anywhere the device offers, and the asking app is handed the
+             cleaned copy instead of what was picked.
+
+             GET_CONTENT only: OPEN_DOCUMENT callers are shown storage roots
+             rather than activities, and are served by the provider below.
+        -->
+        <activity
+            android:name=".picker.PickCleanActivity"
+            android:exported="true"
+            android:enabled="true"
+            android:excludeFromRecents="true"
+            android:label="@string/pick_target_label"
+            android:theme="@style/Theme.ExifRemove.Share">
+            <intent-filter>
+                <action android:name="android.intent.action.GET_CONTENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
+
+        <!--
              Makes the app a source in the system file picker, one entry per
              cleaning template, so any upload dialog can take a cleaned copy
              directly. MANAGE_DOCUMENTS is held only by the system picker, so

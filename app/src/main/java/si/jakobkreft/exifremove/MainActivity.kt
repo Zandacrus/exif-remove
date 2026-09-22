@@ -139,6 +139,7 @@ private fun AppNavigation() {
             onPickerIntegrationChange = {
                 scope.launch { repository.setPickerIntegration(it) }
             },
+            onPickerBrowseChange = { scope.launch { repository.setPickerBrowse(it) } },
             onBack = { screen = SCREEN_HOME },
         )
         SCREEN_ABOUT -> AboutScreen(onBack = { screen = SCREEN_HOME })
