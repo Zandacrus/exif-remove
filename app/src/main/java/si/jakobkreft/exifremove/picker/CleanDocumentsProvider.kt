@@ -11,6 +11,7 @@ import android.graphics.Point
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.DocumentsContract.Root
 import android.provider.DocumentsProvider
@@ -69,16 +70,12 @@ class CleanDocumentsProvider : DocumentsProvider() {
     override fun queryDocument(documentId: String, projection: Array<String>?): Cursor {
         val cursor = MatrixCursor(projection ?: DOCUMENT_PROJECTION)
         val state = runBlocking { AppRepository.get(appContext).currentState() }
-        val template = PickerIntegration.templateFor(documentId, state.templates)
+        PickerIntegration.templateFor(documentId, state.templates)
             ?: throw FileNotFoundException("Unknown template in $documentId")
 
-        if (PickerIntegration.isRoot(documentId)) {
-            cursor.newRow().apply {
-                add(Document.COLUMN_DOCUMENT_ID, documentId)
-                add(Document.COLUMN_DISPLAY_NAME, template.name)
-                add(Document.COLUMN_MIME_TYPE, Document.MIME_TYPE_DIR)
-                add(Document.COLUMN_FLAGS, Document.FLAG_DIR_PREFERS_GRID)
-            }
+        val folderPath = PickerIntegration.folderPathOf(documentId)
+        if (folderPath != null) {
+            addFolderRow(cursor, documentId, folderPath)
             return cursor
         }
 
@@ -97,6 +94,9 @@ class CleanDocumentsProvider : DocumentsProvider() {
     ): Cursor {
         val cursor = MatrixCursor(projection ?: DOCUMENT_PROJECTION)
         val state = runBlocking { AppRepository.get(appContext).currentState() }
+        val templateId = PickerIntegration.templateIdOf(parentDocumentId)
+        val folderPath = PickerIntegration.folderPathOf(parentDocumentId)
+            ?: throw FileNotFoundException("Not a folder: $parentDocumentId")
 
         // A content provider cannot ask for a runtime permission, and reading
         // the gallery without ACCESS_MEDIA_LOCATION would hand back files the
@@ -106,17 +106,25 @@ class CleanDocumentsProvider : DocumentsProvider() {
         ) {
             cursor.extras = Bundle().apply {
                 putString(
-                    android.provider.DocumentsContract.EXTRA_INFO,
+                    DocumentsContract.EXTRA_INFO,
                     appContext.getString(R.string.picker_needs_permission),
                 )
             }
             return cursor
         }
 
-        MediaCatalog.list(appContext, state.convertUnsupported).forEach { item ->
+        val listing = MediaCatalog.children(appContext, folderPath, state.convertUnsupported)
+        listing.folders.forEach { folder ->
+            addFolderRow(
+                cursor,
+                PickerIntegration.folderDocumentId(templateId, folder.path),
+                folder.path,
+            )
+        }
+        listing.files.forEach { item ->
             addFileRow(
                 cursor,
-                PickerIntegration.documentId(PickerIntegration.templateIdOf(parentDocumentId), item.id),
+                PickerIntegration.documentId(templateId, item.id),
                 item,
                 state.randomFileNames,
                 state.convertUnsupported,
@@ -125,9 +133,31 @@ class CleanDocumentsProvider : DocumentsProvider() {
         return cursor
     }
 
-    override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean =
-        PickerIntegration.isRoot(parentDocumentId) &&
-            PickerIntegration.templateIdOf(documentId) == parentDocumentId
+    override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+        if (PickerIntegration.templateIdOf(parentDocumentId) !=
+            PickerIntegration.templateIdOf(documentId)
+        ) {
+            return false
+        }
+        val parentPath = PickerIntegration.folderPathOf(parentDocumentId) ?: return false
+        // Files carry no path of their own, so anything under the same root
+        // counts as a descendant of it; folders compare by prefix.
+        val childPath = PickerIntegration.folderPathOf(documentId) ?: return true
+        return childPath != parentPath && childPath.startsWith(parentPath)
+    }
+
+    /** The storage root is named for what it is; below it, each folder's own name. */
+    private fun addFolderRow(cursor: MatrixCursor, documentId: String, path: String) {
+        cursor.newRow().apply {
+            add(Document.COLUMN_DOCUMENT_ID, documentId)
+            add(
+                Document.COLUMN_DISPLAY_NAME,
+                MediaCatalog.folderName(path) ?: appContext.getString(R.string.picker_root_name),
+            )
+            add(Document.COLUMN_MIME_TYPE, Document.MIME_TYPE_DIR)
+            add(Document.COLUMN_FLAGS, Document.FLAG_DIR_PREFERS_GRID)
+        }
+    }
 
     /**
      * The name and type advertised here are the ones the picking app reads
@@ -187,17 +217,17 @@ class CleanDocumentsProvider : DocumentsProvider() {
         )
     }
 
-    override fun getDocumentType(documentId: String): String =
-        if (PickerIntegration.isRoot(documentId)) {
-            Document.MIME_TYPE_DIR
-        } else {
-            val mediaId = PickerIntegration.mediaIdOf(documentId)
-                ?: throw FileNotFoundException("Malformed document id $documentId")
-            val item = MediaCatalog.item(appContext, mediaId)
-                ?: throw FileNotFoundException("No media $mediaId")
-            val state = runBlocking { AppRepository.get(appContext).currentState() }
-            OutputName.of(documentId, item, state.randomFileNames, state.convertUnsupported).mimeType
-        }
+    override fun getDocumentType(documentId: String): String {
+        if (PickerIntegration.folderPathOf(documentId) != null) return Document.MIME_TYPE_DIR
+        val mediaId = PickerIntegration.mediaIdOf(documentId)
+            ?: throw FileNotFoundException("Malformed document id $documentId")
+        val item = MediaCatalog.item(appContext, mediaId)
+            ?: throw FileNotFoundException("No media $mediaId")
+        val state = runBlocking { AppRepository.get(appContext).currentState() }
+        return OutputName.of(
+            documentId, item, state.randomFileNames, state.convertUnsupported
+        ).mimeType
+    }
 
     companion object {
         private val ROOT_PROJECTION = arrayOf(

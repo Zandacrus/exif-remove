@@ -14,11 +14,40 @@ import si.jakobkreft.exifremove.data.Template
 class PickerIntegrationTest {
 
     @Test
-    fun `document id round trips`() {
+    fun `file document id round trips`() {
         val id = PickerIntegration.documentId(Template.ID_SCRAMBLE, 42L)
         assertEquals(Template.ID_SCRAMBLE, PickerIntegration.templateIdOf(id))
         assertEquals(42L, PickerIntegration.mediaIdOf(id))
+        assertNull(PickerIntegration.folderPathOf(id))
         assertFalse(PickerIntegration.isRoot(id))
+    }
+
+    @Test
+    fun `folder document id round trips`() {
+        val id = PickerIntegration.folderDocumentId(Template.ID_SCRAMBLE, "DCIM/Camera/")
+        assertEquals(Template.ID_SCRAMBLE, PickerIntegration.templateIdOf(id))
+        assertEquals("DCIM/Camera/", PickerIntegration.folderPathOf(id))
+        assertNull(PickerIntegration.mediaIdOf(id))
+    }
+
+    @Test
+    fun `the root stands for the whole of storage`() {
+        val root = PickerIntegration.rootDocumentId(Template.ID_REMOVE_EVERYTHING)
+        assertTrue(PickerIntegration.isRoot(root))
+        assertEquals("", PickerIntegration.folderPathOf(root))
+        assertNull(PickerIntegration.mediaIdOf(root))
+        // An empty path must not produce a second, different id for the root.
+        assertEquals(
+            root,
+            PickerIntegration.folderDocumentId(Template.ID_REMOVE_EVERYTHING, "")
+        )
+    }
+
+    @Test
+    fun `a numeric folder name is not read as a media id`() {
+        val id = PickerIntegration.folderDocumentId(Template.ID_SCRAMBLE, "DCIM/100/")
+        assertNull(PickerIntegration.mediaIdOf(id))
+        assertEquals("DCIM/100/", PickerIntegration.folderPathOf(id))
     }
 
     @Test
@@ -32,16 +61,10 @@ class PickerIntegrationTest {
     }
 
     @Test
-    fun `root document id carries no media`() {
-        val root = PickerIntegration.rootDocumentId(Template.ID_REMOVE_EVERYTHING)
-        assertTrue(PickerIntegration.isRoot(root))
-        assertNull(PickerIntegration.mediaIdOf(root))
-    }
-
-    @Test
     fun `malformed ids do not parse as media`() {
-        assertNull(PickerIntegration.mediaIdOf("template/not-a-number"))
-        assertNull(PickerIntegration.mediaIdOf("template/"))
+        assertNull(PickerIntegration.mediaIdOf("template/f/not-a-number"))
+        assertNull(PickerIntegration.mediaIdOf("template/f/"))
+        assertNull(PickerIntegration.mediaIdOf("template"))
         assertNull(PickerIntegration.mediaIdOf(""))
     }
 
@@ -53,6 +76,6 @@ class PickerIntegrationTest {
                 PickerIntegration.documentId(Template.ID_SCRAMBLE, 1L), templates
             )
         )
-        assertNull(PickerIntegration.templateFor("deleted-template/1", templates))
+        assertNull(PickerIntegration.templateFor("deleted-template/f/1", templates))
     }
 }

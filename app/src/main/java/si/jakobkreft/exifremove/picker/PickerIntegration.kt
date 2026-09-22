@@ -23,16 +23,40 @@ object PickerIntegration {
 
     const val AUTHORITY = "si.jakobkreft.exifremove.documents"
 
-    /** A document id is `<templateId>` for a root, `<templateId>/<mediaId>` below it. */
+    /**
+     * A document id is `<templateId>` for a root, `<templateId>/d/<path>/`
+     * for a folder below it and `<templateId>/f/<mediaId>` for a file. The
+     * kind is spelled out rather than inferred, so a folder called `42`
+     * cannot be read as a media id.
+     */
     fun rootDocumentId(templateId: String): String = templateId
 
-    fun documentId(templateId: String, mediaId: Long): String = "$templateId/$mediaId"
+    fun folderDocumentId(templateId: String, path: String): String =
+        if (path.isEmpty()) templateId else "$templateId/d/$path"
+
+    fun documentId(templateId: String, mediaId: Long): String = "$templateId/f/$mediaId"
 
     fun templateIdOf(documentId: String): String = documentId.substringBefore('/')
 
-    /** Null for a root document, which stands for the template itself. */
-    fun mediaIdOf(documentId: String): Long? =
-        documentId.substringAfter('/', "").toLongOrNull()
+    /** Null unless this id names a file. */
+    fun mediaIdOf(documentId: String): Long? {
+        val rest = documentId.substringAfter('/', "")
+        if (!rest.startsWith("f/")) return null
+        return rest.removePrefix("f/").toLongOrNull()
+    }
+
+    /**
+     * The folder an id stands for, `""` being the storage root; null when the
+     * id names a file instead.
+     */
+    fun folderPathOf(documentId: String): String? {
+        val rest = documentId.substringAfter('/', "")
+        return when {
+            rest.isEmpty() -> ""
+            rest.startsWith("d/") -> rest.removePrefix("d/")
+            else -> null
+        }
+    }
 
     fun isRoot(documentId: String): Boolean = !documentId.contains('/')
 

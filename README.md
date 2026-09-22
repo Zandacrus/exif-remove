@@ -22,8 +22,9 @@ copies on. Works offline, no tracking, free software.
 
 - Share target for photos and videos, one or many at a time
 - Appears as a source in the system file picker, one entry per template, so
-  any app or website asking for a file can take a cleaned copy directly —
-  nothing is cleaned until the file is actually opened
+  any app or website asking for a file can take a cleaned copy directly.
+  Storage is browsed by folder, and nothing is cleaned until the file is
+  actually opened
 - Templates set what happens to each category: location, date and time, camera
   info, everything else. Each is kept, removed or randomized.
 - Three built-in templates, all editable. Add your own and set a default.
